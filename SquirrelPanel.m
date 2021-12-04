@@ -53,7 +53,7 @@ static const CGFloat kOffsetHeight = 5;
 static const CGFloat kDefaultFontSize = 24;
 static const CGFloat kBlendedBackgroundColorFraction = 1.0 / 5;
 static const NSTimeInterval kShowStatusDuration = 1.2;
-static NSString *const kDefaultCandidateFormat = @"%c. %@";
+static NSString *const kDefaultCandidateFormat = @"%c.\u00A0%@";
 
 @interface SquirrelTheme : NSObject
 
@@ -291,6 +291,13 @@ SquirrelTheme *_darkTheme;
 - (NSRect)contentRect {
   NSRange glyphRange = [_text.layoutManagers[0] glyphRangeForTextContainer:_text.layoutManagers[0].textContainers[0]];
   NSRect rect = [_text.layoutManagers[0] boundingRectForGlyphRange:glyphRange inTextContainer:_text.layoutManagers[0].textContainers[0]];
+  __block long actualWidth = 0;
+  [_text.layoutManagers[0] enumerateLineFragmentsForGlyphRange:glyphRange usingBlock:^(CGRect rect, CGRect usedRect, NSTextContainer *textContainer, NSRange glyphRange, BOOL *stop) {
+    if (usedRect.size.width > actualWidth) {
+      actualWidth = usedRect.size.width;
+    }
+  }];
+  rect.size.width = actualWidth;
   return rect;
 }
 
@@ -792,9 +799,9 @@ void convertToVerticalGlyph(NSMutableAttributedString *originalText, NSRange str
   const NSSize hangulSize = [hangulChar boundingRectWithSize:NSZeroSize options:0].size;
   stringRange = [originalText.string rangeOfComposedCharacterSequencesForRange:stringRange];
   NSUInteger i = stringRange.location;
-  while (i < stringRange.location+stringRange.length) {
+  while (i < NSMaxRange(stringRange)) {
     NSRange range = [originalText.string rangeOfComposedCharacterSequenceAtIndex:i];
-    i = range.location + range.length;
+    i = NSMaxRange(range);
     NSRect charRect = [[originalText attributedSubstringFromRange:range] boundingRectWithSize:NSZeroSize options:0];
     // Also adjust the baseline so upright and lying charcters are properly aligned
     if ((charRect.size.width >= cjkRect.size.width) || (charRect.size.width >= hangulSize.width)) {
@@ -821,6 +828,20 @@ void fixDefaultFont(NSMutableAttributedString *text) {
     }
     i = currentFontRange.location + currentFontRange.length;
   }
+}
+
+NSAttributedString *insert(NSString *separator, NSAttributedString *betweenText) {
+  NSRange range = [betweenText.string rangeOfComposedCharacterSequenceAtIndex:0];
+  NSAttributedString *attributedSeperator = [[NSAttributedString alloc] initWithString:separator attributes:[betweenText attributesAtIndex:0 effectiveRange:nil]];
+  NSUInteger i = NSMaxRange(range);
+  NSMutableAttributedString *workingString = [[betweenText attributedSubstringFromRange:range] mutableCopy];
+  while (i < betweenText.length) {
+    range = [betweenText.string rangeOfComposedCharacterSequenceAtIndex:i];
+    [workingString appendAttributedString:attributedSeperator];
+    [workingString appendAttributedString:[betweenText attributedSubstringFromRange:range]];
+    i = NSMaxRange(range);
+  }
+  return workingString;
 }
 
 + (NSColor *)secondaryTextColor {
@@ -927,6 +948,15 @@ void fixDefaultFont(NSMutableAttributedString *text) {
       break;
     }
   }
+}
+
+- (CGFloat)getMaxTextWidth:(SquirrelTheme *)theme {
+  NSFont *currentFont = theme.attrs[NSFontAttributeName];
+  CGFloat fontScale = currentFont.pointSize / 12;
+  CGFloat textWidthRatio = MIN(1.0, 1.0 / (theme.vertical ? 4 : 3) + fontScale / 12);
+  return theme.vertical
+    ? NSHeight(_screenRect) * textWidthRatio - theme.edgeInset.height * 2
+    : NSWidth(_screenRect) * textWidthRatio - theme.edgeInset.width * 2;
 }
 
 // Get the window size, the windows will be the dirtyRect in SquirrelView.drawRect
@@ -1069,6 +1099,7 @@ void fixDefaultFont(NSMutableAttributedString *text) {
   }
 
   SquirrelTheme *theme = _view.currentTheme;
+  CGFloat maxTextWidth = [self getMaxTextWidth:theme];
 
   NSMutableAttributedString *text = [[NSMutableAttributedString alloc] init];
   NSUInteger candidateStartPos = 0;
@@ -1162,9 +1193,17 @@ void fixDefaultFont(NSMutableAttributedString *text) {
 
     NSUInteger candidateStart = line.length;
     NSString *candidate = candidates[i];
-    [line appendAttributedString:[[NSAttributedString alloc]
-                                     initWithString:candidate.precomposedStringWithCanonicalMapping
-                                         attributes:attrs]];
+    NSAttributedString *candidateAttributedString = [[NSAttributedString alloc]
+                                                     initWithString:candidate.precomposedStringWithCanonicalMapping
+                                                     attributes:attrs];
+    CGFloat candidateWidth = [candidateAttributedString boundingRectWithSize:NSZeroSize options:NSStringDrawingUsesLineFragmentOrigin].size.width;
+    if (candidateWidth <= maxTextWidth * 0.2) {
+      // Unicode Word Joiner
+      candidateAttributedString = insert(@"\u2060", candidateAttributedString);
+    }
+    
+    [line appendAttributedString:candidateAttributedString];
+    
     // Use left-to-right marks to prevent right-to-left text from changing the
     // layout of non-candidate text.
     [line addAttribute:NSWritingDirectionAttributeName value:@[@0] range:NSMakeRange(candidateStart, line.length-candidateStart)];
@@ -1198,13 +1237,28 @@ void fixDefaultFont(NSMutableAttributedString *text) {
 
     if (i < comments.count && [comments[i] length] != 0) {
       NSUInteger commentStart = line.length;
-      [line appendAttributedString:[[NSAttributedString alloc]
-                                       initWithString:@" "
-                                           attributes:commentAttrs]];
+      CGFloat candidateAndLabelWidth = [line boundingRectWithSize:NSZeroSize options:NSStringDrawingUsesLineFragmentOrigin].size.width;
       NSString *comment = comments[i];
+      NSAttributedString *commentAttributedString = [[NSAttributedString alloc]
+                                                     initWithString:comment.precomposedStringWithCanonicalMapping
+                                                     attributes:commentAttrs];
+      CGFloat commentWidth = [commentAttributedString boundingRectWithSize:NSZeroSize options:NSStringDrawingUsesLineFragmentOrigin].size.width;
+      if (commentWidth <= maxTextWidth * 0.2) {
+        // Unicode Word Joiner
+        commentAttributedString = insert(@"\u2060", commentAttributedString);
+      }
+      
+      NSString *commentSeparator;
+      if (candidateAndLabelWidth + commentWidth <= maxTextWidth * 0.3) {
+        // Non-Breaking White Space
+        commentSeparator = @"\u00A0";
+      } else {
+        commentSeparator = @" ";
+      }
       [line appendAttributedString:[[NSAttributedString alloc]
-                                       initWithString:comment.precomposedStringWithCanonicalMapping
+                                       initWithString:commentSeparator
                                            attributes:commentAttrs]];
+      [line appendAttributedString:commentAttributedString];
       if (theme.vertical) {
         convertToVerticalGlyph(line, NSMakeRange(commentStart, line.length-commentStart));
       }

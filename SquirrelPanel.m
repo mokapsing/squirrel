@@ -76,6 +76,7 @@ static NSString *const kDefaultCandidateFormat = @"%c. %@";
 @property(nonatomic, readonly) BOOL linear;
 @property(nonatomic, readonly) BOOL vertical;
 @property(nonatomic, readonly) BOOL inlinePreedit;
+@property(nonatomic, readonly) BOOL inlineCandidate;
 
 @property(nonatomic, strong, readonly) NSDictionary *attrs;
 @property(nonatomic, strong, readonly) NSDictionary *highlightedAttrs;
@@ -108,7 +109,8 @@ static NSString *const kDefaultCandidateFormat = @"%c. %@";
            translucency:(BOOL)translucency
                  linear:(BOOL)linear
                vertical:(BOOL)vertical
-          inlinePreedit:(BOOL)inlinePreedit;
+          inlinePreedit:(BOOL)inlinePreedit
+        inlineCandidate:(BOOL)inlineCandidate;
 
 - (void)       setAttrs:(NSMutableDictionary *)attrs
              labelAttrs:(NSMutableDictionary *)labelAttrs
@@ -174,7 +176,8 @@ preeditHighlightedAttrs:(NSMutableDictionary *)preeditHighlightedAttrs;
            translucency:(BOOL)translucency
                  linear:(BOOL)linear
                vertical:(BOOL)vertical
-          inlinePreedit:(BOOL)inlinePreedit {
+          inlinePreedit:(BOOL)inlinePreedit
+        inlineCandidate:(BOOL)inlineCandidate {
   _cornerRadius = cornerRadius;
   _hilitedCornerRadius = hilitedCornerRadius;
   _edgeInset = edgeInset;
@@ -186,6 +189,7 @@ preeditHighlightedAttrs:(NSMutableDictionary *)preeditHighlightedAttrs;
   _linear = linear;
   _vertical = vertical;
   _inlinePreedit = inlinePreedit;
+  _inlineCandidate = inlineCandidate;
 }
 
 - (void)       setAttrs:(NSMutableDictionary *)attrs
@@ -763,6 +767,10 @@ void expand(NSMutableArray<NSValue *> *vertex, NSRect innerBorder, NSRect outerB
 
 - (BOOL)inlinePreedit {
   return _view.currentTheme.inlinePreedit;
+}
+
+- (BOOL)inlineCandidate {
+  return _view.currentTheme.inlineCandidate;
 }
 
 CGFloat minimumHeight(NSDictionary *attribute) {
@@ -1351,6 +1359,7 @@ static void updateTextOrientation(BOOL *isVerticalText, SquirrelConfig *config, 
   updateCandidateListLayout(&linear, config, @"style");
   updateTextOrientation(&vertical, config, @"style");
   BOOL inlinePreedit = [config getBool:@"style/inline_preedit"];
+  BOOL inlineCandidate = [config getBool:@"style/inline_candidate"];
   BOOL translucency = [config getBool:@"style/translucency"];
   NSString *candidateFormat = [config getString:@"style/candidate_format"];
 
@@ -1440,6 +1449,11 @@ static void updateTextOrientation(BOOL *isVerticalText, SquirrelConfig *config, 
     if (inlinePreeditOverridden) {
       inlinePreedit = inlinePreeditOverridden.boolValue;
     }
+    NSNumber *inlineCandidateOverridden =
+        [config getOptionalBool:[prefix stringByAppendingString:@"/inline_candidate"]];
+    if (inlineCandidateOverridden) {
+      inlineCandidate = inlineCandidateOverridden.boolValue;
+    }
     NSNumber *translucencyOverridden =
         [config getOptionalBool:[prefix stringByAppendingString:@"/translucency"]];
     if (translucencyOverridden) {
@@ -1450,7 +1464,6 @@ static void updateTextOrientation(BOOL *isVerticalText, SquirrelConfig *config, 
     if (candidateFormatOverridden) {
       candidateFormat = candidateFormatOverridden;
     }
-
     NSString *fontNameOverridden =
         [config getString:[prefix stringByAppendingString:@"/font_face"]];
     if (fontNameOverridden) {
@@ -1691,7 +1704,8 @@ static void updateTextOrientation(BOOL *isVerticalText, SquirrelConfig *config, 
             translucency:translucency
                   linear:linear
                 vertical:vertical
-           inlinePreedit:inlinePreedit];
+           inlinePreedit:inlinePreedit
+        inlineCandidate:inlineCandidate];
 
   theme.native = isNative;
   theme.candidateFormat = (candidateFormat ? candidateFormat : kDefaultCandidateFormat);
